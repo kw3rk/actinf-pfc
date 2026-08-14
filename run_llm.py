@@ -32,6 +32,9 @@ def main():
                     help="token price (utility/token); actinf only")
     ap.add_argument("--frozen", action="store_true",
                     help="eval mode: no learning, no exploration bonus")
+    ap.add_argument("--adaptive-entropy", action="store_true",
+                    help="bucket entropy vs a running local baseline instead "
+                         "of the absolute calibrated threshold")
     ap.add_argument("--load-model", help="npz of pre-trained Dirichlet counts")
     ap.add_argument("--save-model", help="save actinf counts here at the end")
     args = ap.parse_args()
@@ -75,9 +78,14 @@ def main():
     else:
         get_task = lambda i: make_task(i, task_rng)
         n_eps = args.episodes
+    norm = None
+    if args.adaptive_entropy:
+        from pfc.engine import H_TURBULENT
+        from pfc.normalize import RunningNorm
+        norm = RunningNorm(absolute_fallback=H_TURBULENT)
     for i in range(n_eps):
         task = get_task(i)
-        res = run_episode(policy, agent, task)
+        res = run_episode(policy, agent, task, norm=norm)
         log_episode(conn, args.policy, task, res,
                     res.final, res.observations, res.statuses)
         conn.commit()

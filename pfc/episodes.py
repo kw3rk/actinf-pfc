@@ -60,9 +60,11 @@ def log_episode(conn, policy: str, task: Task, res: EpisodeResult,
          final_answer, task.answer, int(res.correct), res.tokens, res.steps))
 
 
-def run_episode(policy, agent, task: Task) -> EpisodeResult:
+def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
     """policy: reset(cue) / choose(steps_left) -> action /
-    observe(action, obs) / learn(trace, difficulty, cue)."""
+    observe(action, obs) / learn(trace, difficulty, cue).
+    norm: optional RunningNorm — entropy bucketed against a running local
+    baseline instead of the absolute H_TURBULENT threshold."""
     policy.reset(task.cue)
     candidate = None          # current AgentResult
     critique = ""
@@ -86,8 +88,11 @@ def run_episode(policy, agent, task: Task) -> EpisodeResult:
                                  rel_tol=1e-4, abs_tol=1e-6)
             return OB_AGREE if same else OB_DISAGREE
         if new_cand.entropy is not None:
-            return (OB_ENT_TURBULENT if new_cand.entropy >= H_TURBULENT
-                    else OB_ENT_SMOOTH)
+            if norm is not None:
+                high = norm.is_high(new_cand.entropy)
+            else:
+                high = new_cand.entropy >= H_TURBULENT
+            return OB_ENT_TURBULENT if high else OB_ENT_SMOOTH
         return OB_CONF_HIGH if new_cand.confidence == "high" else OB_CONF_LOW
 
     for step in range(MAX_STEPS):

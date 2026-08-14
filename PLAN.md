@@ -75,3 +75,23 @@ intermediate states).
   then freeze into transferred models. Planned fix: an exploration floor
   (minimum trial count per (action, difficulty) cell before its estimate is
   eligible to be frozen), or optimistic initialization for newly added actions.
+
+## Domain adaptation (added after the MMLU saturation finding)
+
+Domains are never represented explicitly; what shifts across them is the
+baseline statistics of the channels.
+
+- **Layer 1 (built)**: self-normalizing sensors — `pfc/normalize.py`, opt-in
+  via `run_llm.py --adaptive-entropy`. Entropy bucketed against a running
+  local quantile window (absolute threshold as cold-start fallback); the
+  sensor re-centers within ~30 episodes of a domain shift. Found because the
+  GSM-calibrated absolute threshold saturated on MMLU humanities (91% of
+  solves read turbulent → blanket rescue at 2.5x tokens for the same +7).
+- **Layer 2 (planned)**: structural context read off the task, not inferred —
+  condition agreement likelihoods on answer-space cardinality (open-ended vs
+  10-choice vs 4-choice chance-match rates).
+- **Layer 3 (planned)**: nonparametric domain discovery — embed tasks,
+  cluster online, per-cluster count tables with shrinkage toward the global
+  prior; sustained surprise in channel statistics triggers local novelty
+  raise + count decay (the harness notices its sensors are miscalibrated and
+  re-explores).
