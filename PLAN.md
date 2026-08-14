@@ -95,3 +95,14 @@ baseline statistics of the channels.
   prior; sustained surprise in channel statistics triggers local novelty
   raise + count decay (the harness notices its sensors are miscalibrated and
   re-explores).
+- **Layer 1.5 (design, after the in-flight-adjustment gotcha)**: always-on
+  sliding normalization has an asymmetric transition tax (hotter-domain entry
+  overspends visibly; cooler-domain entry under-verifies silently), drifts
+  the count semantics mid-flight, and collapses into a domain detector under
+  interleaved traffic. Fix: surprise-gated re-centering (CUSUM-style change
+  detection on the raw stream) + temporarily flattened channel likelihood
+  (precision drop) so the planner knowingly buys information from unaffected
+  channels during recalibration + locally raised novelty; windows keyed by
+  layer-2 structural features to survive interleaving; absolute channel kept
+  in parallel to catch uniform degradation. (Yu & Dayan's expected/unexpected
+  uncertainty, implemented.)
