@@ -13,7 +13,8 @@ import sqlite3
 from dataclasses import dataclass
 
 from .engine import (SOLVE, SOLVE_THINK, VERIFY, REWORK, SUBMIT,
-                     REWORK_SKEPTIC, S_NONE, S_CORRECT, S_FLAWED,
+                     REWORK_SKEPTIC, SOLVE_PREPPED,
+                     S_NONE, S_CORRECT, S_FLAWED,
                      OB_NONE, OB_CONF_LOW, OB_CONF_HIGH,
                      OB_VERDICT_OK, OB_VERDICT_ISSUE, OB_AGREE, OB_DISAGREE,
                      OB_ENT_SMOOTH, OB_ENT_TURBULENT, H_TURBULENT,
@@ -99,11 +100,16 @@ def run_episode(policy, agent, task: Task) -> EpisodeResult:
             candidate = agent.solve(task, think=(a == SOLVE_THINK))
             obs = fresh_obs(prev_ans, candidate)
             step_tokens = candidate.tokens
+        elif a == SOLVE_PREPPED:
+            candidate = agent.solve_prepped(task)
+            obs = fresh_obs(prev_ans, candidate)
+            step_tokens = candidate.tokens
         elif a == VERIFY:
             v = agent.verify(task, candidate.answer)
             critique = v.critique
             obs = OB_VERDICT_OK if v.ok else OB_VERDICT_ISSUE
             step_tokens = v.tokens
+            last_verify_variant = v.variant
         elif a == REWORK:
             candidate = agent.rework(task, candidate.answer, critique)
             obs = fresh_obs(prev_ans, candidate)
@@ -121,8 +127,15 @@ def run_episode(policy, agent, task: Task) -> EpisodeResult:
         actions.append(ACTION_NAMES[a])
         observations.append(obs)
         statuses.append(s_after)
+        variant = None
+        if a == VERIFY:
+            variant = last_verify_variant
+        elif candidate is not None and a in (SOLVE, SOLVE_THINK, REWORK,
+                                             REWORK_SKEPTIC, SOLVE_PREPPED):
+            variant = candidate.variant
         trace.append({"action": a, "obs": obs, "tokens": step_tokens,
-                      "status_before": s_before, "status_after": s_after})
+                      "status_before": s_before, "status_after": s_after,
+                      "variant": variant})
 
         if a == SUBMIT:
             break
@@ -133,6 +146,20 @@ def run_episode(policy, agent, task: Task) -> EpisodeResult:
         final, task.answer, rel_tol=1e-4, abs_tol=1e-6)
     res = EpisodeResult(correct=correct, tokens=tokens, steps=len(actions),
                         actions=actions, trace=trace)
+    # credit template variants against ground truth (Stage 1 bandit)
+    bandit = getattr(agent, "variants", None)
+    if bandit is not None:
+        for step in trace:
+            var = step.get("variant")
+            if var is None:
+                continue
+            slot, idx = var
+            if step["action"] == VERIFY:
+                said_ok = step["obs"] == OB_VERDICT_OK
+                success = said_ok == (step["status_before"] == S_CORRECT)
+            else:
+                success = step["status_after"] == S_CORRECT
+            bandit.update(slot, idx, success)
     policy.learn(trace, task.difficulty, task.cue)
     res.observations, res.statuses, res.final = observations, statuses, final
     return res

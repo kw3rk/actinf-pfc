@@ -104,6 +104,40 @@ class Math500Bench:
                     cue=_cue(text))
 
 
+MMLU_SUBJECTS = ("law", "psychology", "philosophy", "history", "health",
+                 "economics", "business")
+
+
+class MmluProBench:
+    """MMLU-Pro filtered to non-STEM subjects — a maximally-foreign transfer
+    bench (knowledge/judgment, not computation). 10-option multiple choice;
+    the model answers with the option number so numeric grading is unchanged.
+    No difficulty labels; audit by category post-hoc via question_id."""
+
+    def __init__(self, rng: np.random.Generator, n: int = 500,
+                 path="data/mmlu_pro.parquet"):
+        import pandas as pd
+        df = pd.read_parquet(path)
+        df = df[df["category"].isin(MMLU_SUBJECTS)]
+        df = df.sample(n=min(n, len(df)), random_state=int(rng.integers(1 << 31)))
+        self.items = []
+        for _, row in df.iterrows():
+            opts = "\n".join(f"{i+1}. {o}" for i, o in enumerate(row["options"]))
+            text = (f"{row['question']}\n\n{opts}\n\n"
+                    f"Answer with the number (1-{len(row['options'])}) "
+                    f"of the correct option.")
+            self.items.append((text, float(row["answer_index"] + 1),
+                               row["category"]))
+
+    def __len__(self):
+        return len(self.items)
+
+    def make(self, tid: int) -> Task:
+        text, ans, _cat = self.items[tid]
+        return Task(tid=tid, text=text, answer=ans, difficulty=0,
+                    cue=_cue(text))
+
+
 class FullBench:
     """Every GSM8K + GSM-Hard problem exactly once, deterministically shuffled."""
 

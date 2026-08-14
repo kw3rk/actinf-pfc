@@ -27,7 +27,7 @@ def main():
     ap.add_argument("--db", default="runs/llm.db")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--dataset", default="synthetic",
-                    choices=["synthetic", "gsm", "gsm-full", "math500"])
+                    choices=["synthetic", "gsm", "gsm-full", "math500", "mmlu-pro"])
     ap.add_argument("--lam", type=float, default=None,
                     help="token price (utility/token); actinf only")
     ap.add_argument("--frozen", action="store_true",
@@ -65,6 +65,11 @@ def main():
     elif args.dataset == "math500":
         from pfc.bench import Math500Bench
         source = Math500Bench(task_rng)
+        get_task = source.make
+        n_eps = len(source)
+    elif args.dataset == "mmlu-pro":
+        from pfc.bench import MmluProBench
+        source = MmluProBench(task_rng)
         get_task = source.make
         n_eps = len(source)
     else:

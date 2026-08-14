@@ -32,11 +32,12 @@ D_EASY, D_HARD = 0, 1
 N_DIFF = 2
 
 # actions
-SOLVE, SOLVE_THINK, VERIFY, REWORK, SUBMIT, REWORK_SKEPTIC = 0, 1, 2, 3, 4, 5
-N_ACTIONS = 6
+(SOLVE, SOLVE_THINK, VERIFY, REWORK, SUBMIT, REWORK_SKEPTIC,
+ SOLVE_PREPPED) = range(7)
+N_ACTIONS = 7
 ACTION_NAMES = ["solve", "solve_think", "verify", "rework", "submit",
-                "rework_skeptic"]
-SOLVE_LIKE = (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC)
+                "rework_skeptic", "solve_prepped"]
+SOLVE_LIKE = (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC, SOLVE_PREPPED)
 
 # feedback observations; agree/disagree = does a fresh candidate match the
 # previous one (self-consistency), emitted instead of confidence on re-solves;
@@ -58,7 +59,7 @@ CUE_SHORT, CUE_LONG = 0, 1
 # prior token costs per action; actual costs are learned online per
 # (action, difficulty) and dominate these priors after a few episodes
 TOKEN_COST = {SOLVE: 300, SOLVE_THINK: 1500, VERIFY: 250, REWORK: 400,
-              SUBMIT: 20, REWORK_SKEPTIC: 450}
+              SUBMIT: 20, REWORK_SKEPTIC: 450, SOLVE_PREPPED: 550}
 
 
 class ActInfController:
@@ -207,8 +208,9 @@ class ActInfController:
 
     def _available(self, b: np.ndarray, can_rework: bool) -> list[int]:
         if b[:, S_NONE].sum() >= 0.5:                 # no candidate yet
-            return [SOLVE, SOLVE_THINK]
-        acts = [SOLVE, SOLVE_THINK, VERIFY, REWORK_SKEPTIC, SUBMIT]
+            return [SOLVE, SOLVE_THINK, SOLVE_PREPPED]
+        acts = [SOLVE, SOLVE_THINK, SOLVE_PREPPED, VERIFY, REWORK_SKEPTIC,
+                SUBMIT]
         if can_rework:
             acts.insert(3, REWORK)
         return acts
@@ -235,10 +237,23 @@ class ActInfController:
                 posts, p_obs, info = self._predict(b, a)
                 v = (-self.lam * self._exp_cost(b, a) + self.epi_w * info
                      + self.nov_w * self._novelty(b, a))
+                # branch only on the mass-dominant observations; value the
+                # improbable tail as submit-now (keeps the tree tractable
+                # as observation channels are added)
+                ranked = sorted(posts, key=lambda o: -p_obs[o])
+                kept, mass = [], 0.0
+                for o in ranked:
+                    kept.append(o)
+                    mass += p_obs[o]
+                    if mass >= 0.95 or len(kept) >= 3:
+                        break
                 for o, post in posts.items():
-                    cr = (a == VERIFY and o == OB_VERDICT_ISSUE)
-                    v += p_obs[o] * self._plan(post, steps_left - 1, cr,
-                                               depth - 1)[0]
+                    if o in kept:
+                        cr = (a == VERIFY and o == OB_VERDICT_ISSUE)
+                        v += p_obs[o] * self._plan(post, steps_left - 1, cr,
+                                                   depth - 1)[0]
+                    else:
+                        v += p_obs[o] * self._submit_value(post)
             if v > best_v:
                 best_v, best_a = v, a
         return best_v, best_a
@@ -275,7 +290,7 @@ class ActInfController:
         """Human-readable read-out of what the A-matrix has learned."""
         A = self._A()
         rows = []
-        for a in (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC):
+        for a in (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC, SOLVE_PREPPED):
             for d, dn in [(D_EASY, "easy"), (D_HARD, "hard")]:
                 pc_hi = A[a, d, S_CORRECT, OB_CONF_HIGH]
                 pf_hi = A[a, d, S_FLAWED, OB_CONF_HIGH]

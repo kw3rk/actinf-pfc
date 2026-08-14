@@ -46,6 +46,41 @@ SKEPTIC_SYS = (
     '{"answer": <number>, "confidence": "high" or "low"}.'
 )
 
+# Variant populations (Stage 1): the bandit picks the wording; the counts
+# retire the losers. Index 0 of each slot is the incumbent.
+SKEPTIC_VARIANTS = [
+    SKEPTIC_SYS,
+    # v1: method-switch framing — force a different solution path
+    "You are a careful math solver. A statistical monitor doubts your previous "
+    "answer based on historical failure rates for this problem type. Redo the "
+    "problem using a DIFFERENT method or order of operations than you would "
+    "naturally use, then compare. If your alternative route reaches the same "
+    "answer, keep it; if not, trust the more careful derivation. Answer ONLY "
+    'with JSON on the last line: {"answer": <number>, "confidence": "high" or "low"}.',
+    # v2: checklist framing — enumerate then recompute
+    "You are a careful math solver. An external monitor estimates a meaningful "
+    "chance your previous answer is wrong. First list each quantity and "
+    "operation the problem requires, one per line. Then recompute step by step "
+    "from your list. If the previous answer survives this audit, keep it. "
+    'Answer ONLY with JSON on the last line: {"answer": <number>, '
+    '"confidence": "high" or "low"}.',
+]
+VERIFIER_VARIANTS = [
+    VERIFIER_SYS,
+    # v1: numeric-substitution framing
+    "You are an independent checker. Solve the problem yourself from scratch "
+    "without looking at the proposed answer. Only after stating your own "
+    "result, compare it to the proposed answer. "
+    'Answer ONLY with JSON on the last line: {"verdict": "ok" or "issue", '
+    '"critique": "<one sentence: what differs, or empty if they match>"}.',
+]
+PREP_SYS = (
+    "You are a careful reader. Do NOT solve the problem. Extract only: "
+    "(1) each given quantity or fact, one per line; (2) each constraint or "
+    "operation the problem describes, in order; (3) exactly what is being "
+    "asked. Be terse and complete."
+)
+
 
 def _num(x) -> float | None:
     if isinstance(x, (int, float)):
@@ -70,11 +105,19 @@ def _last_json(text: str) -> dict:
 
 class LlmAgent:
     def __init__(self, base_url: str, model: str = "default",
-                 timeout: float = 300.0, max_tokens: int = 4096):
+                 timeout: float = 300.0, max_tokens: int = 4096,
+                 variants=None):
         self.url = base_url.rstrip("/") + "/v1/chat/completions"
         self.model = model
         self.timeout = timeout
         self.max_tokens = max_tokens
+        if variants is None:
+            from .variants import VariantBandit
+            variants = VariantBandit()
+        self.variants = variants
+        if "skeptic" not in self.variants.slots:
+            self.variants.register("skeptic", SKEPTIC_VARIANTS)
+            self.variants.register("verifier", VERIFIER_VARIANTS)
 
     def _chat(self, system: str, user: str, think: bool, logprobs: bool = False):
         # /think — /no_think soft switches are gone in Qwen3.6; the template
@@ -122,13 +165,35 @@ class LlmAgent:
     def solve(self, task: Task, think: bool) -> AgentResult:
         return self._solve_like(SOLVER_SYS, task.text, think)
 
+    def solve_prepped(self, task: Task) -> AgentResult:
+        """Preparation pipeline: extract the problem structure (cheap), gate on
+        the extraction's entropy (one re-prep if turbulent), then solve with
+        the extraction in context."""
+        from .engine import H_TURBULENT
+        prep_tokens = 0
+        extraction, h = "", None
+        for _ in range(2):
+            text, tok, h = self._chat(PREP_SYS, task.text, think=False,
+                                      logprobs=True)
+            prep_tokens += tok
+            extraction = text.strip()
+            if h is None or h < H_TURBULENT:
+                break
+        user = (f"{task.text}\n\nA careful reading of the problem:\n"
+                f"{extraction}\n\nSolve using this breakdown.")
+        res = self._solve_like(SOLVER_SYS, user, think=False)
+        res.tokens += prep_tokens
+        return res
+
     def verify(self, task: Task, answer: float | None) -> VerifyResult:
+        idx, sys = self.variants.choose("verifier")
         user = f"{task.text}\n\nProposed answer: {answer}"
-        text, tokens, _ = self._chat(VERIFIER_SYS, user, think=False)
+        text, tokens, _ = self._chat(sys, user, think=False)
         j = _last_json(text)
         ok = j.get("verdict", "issue") == "ok"
         return VerifyResult(ok=ok, critique=str(j.get("critique", "")),
-                            tokens=tokens, raw=text)
+                            tokens=tokens, raw=text,
+                            variant=("verifier", idx))
 
     def rework(self, task: Task, answer: float | None, critique: str) -> AgentResult:
         user = (f"{task.text}\n\nPrevious answer: {answer}\n"
@@ -137,9 +202,12 @@ class LlmAgent:
 
     def rework_skeptic(self, task: Task, answer: float | None,
                        p_flawed: float) -> AgentResult:
+        idx, sys = self.variants.choose("skeptic")
         user = (f"{task.text}\n\nPrevious answer: {answer}\n"
                 f"Monitor's estimate: {round(100 * p_flawed)}% chance this "
                 f"answer is wrong, based on historical failure rates for "
                 f"problems of this type (arithmetic slips on large numbers are "
                 f"the most common cause).")
-        return self._solve_like(SKEPTIC_SYS, user, think=False)
+        res = self._solve_like(sys, user, think=False)
+        res.variant = ("skeptic", idx)
+        return res

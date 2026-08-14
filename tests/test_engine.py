@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from pfc.engine import (ActInfController, SOLVE, SOLVE_THINK, VERIFY, REWORK,
-                        SUBMIT, REWORK_SKEPTIC, SOLVE_LIKE,
+                        SUBMIT, REWORK_SKEPTIC, SOLVE_PREPPED, SOLVE_LIKE,
                         S_NONE, S_CORRECT, S_FLAWED, D_EASY, D_HARD,
                         OB_CONF_HIGH, OB_CONF_LOW, OB_VERDICT_OK,
                         OB_VERDICT_ISSUE, OB_AGREE, OB_DISAGREE,
@@ -25,6 +25,9 @@ def trained_controller(**kw) -> ActInfController:
             c.B_counts[SOLVE_THINK, d, s_prev, S_FLAWED] += N * (1 - p_thk)
             c.B_counts[REWORK_SKEPTIC, d, s_prev, S_CORRECT] += N * 0.7
             c.B_counts[REWORK_SKEPTIC, d, s_prev, S_FLAWED] += N * 0.3
+            p_prep = min(0.95, p_ok + 0.1)
+            c.B_counts[SOLVE_PREPPED, d, s_prev, S_CORRECT] += N * p_prep
+            c.B_counts[SOLVE_PREPPED, d, s_prev, S_FLAWED] += N * (1 - p_prep)
         for a in SOLVE_LIKE:
             # ratios preserve the pre-agreement-channel posteriors:
             # P(hi|corr)/P(hi|flawed)=4/3, P(lo|corr)/P(lo|flawed)=1/2
