@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     policy TEXT, tid INTEGER, difficulty INTEGER, cue INTEGER,
     actions TEXT, observations TEXT, statuses TEXT,
     final_answer INTEGER, truth INTEGER, correct INTEGER,
-    tokens INTEGER, steps INTEGER
+    tokens INTEGER, steps INTEGER, entropies TEXT
 );
 """
 
@@ -53,11 +53,12 @@ def log_episode(conn, policy: str, task: Task, res: EpisodeResult,
                 final_answer, observations, statuses):
     conn.execute(
         "INSERT INTO episodes (policy, tid, difficulty, cue, actions, observations,"
-        " statuses, final_answer, truth, correct, tokens, steps)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        " statuses, final_answer, truth, correct, tokens, steps, entropies)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (policy, task.tid, task.difficulty, task.cue,
          json.dumps(res.actions), json.dumps(observations), json.dumps(statuses),
-         final_answer, task.answer, int(res.correct), res.tokens, res.steps))
+         final_answer, task.answer, int(res.correct), res.tokens, res.steps,
+         json.dumps(getattr(res, "entropies", []))))
 
 
 def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
@@ -70,6 +71,7 @@ def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
     critique = ""
     tokens = 0
     actions, observations, statuses, trace = [], [], [], []
+    entropies = []            # raw per-step entropy (None for verify/submit)
 
     def status_of(ans):
         if ans is None:
@@ -128,6 +130,9 @@ def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
             obs = OB_NONE
 
         tokens += step_tokens
+        entropies.append(candidate.entropy
+                         if candidate is not None and a not in (VERIFY, SUBMIT)
+                         else None)
         s_after = status_of(candidate.answer if candidate else None)
         actions.append(ACTION_NAMES[a])
         observations.append(obs)
@@ -167,4 +172,5 @@ def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
             bandit.update(slot, idx, success)
     policy.learn(trace, task.difficulty, task.cue)
     res.observations, res.statuses, res.final = observations, statuses, final
+    res.entropies = entropies
     return res
