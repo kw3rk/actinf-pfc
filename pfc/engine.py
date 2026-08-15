@@ -97,6 +97,7 @@ class ActInfController:
             [[TOKEN_COST[a]] * N_DIFF for a in range(N_ACTIONS)], dtype=float)
         self.cost_n = np.ones((N_ACTIONS, N_DIFF))
 
+        self._B_sample = None
         self._structural_priors()
         self.reset_episode(cue=None)
 
@@ -139,6 +140,24 @@ class ActInfController:
     def _B(self):
         return self.B_counts / self.B_counts.sum(axis=-1, keepdims=True)
 
+    def _B_planning(self):
+        """Transition model used by the planner. When exploring (novelty on),
+        Dirichlet posterior-sample instead of taking means (PSRL): cells with
+        few counts keep drawing occasionally-optimistic models and get
+        retried until their posteriors concentrate — no premature freezing on
+        an unlucky handful of trials. Inference (update_belief) always uses
+        means. One sample per decision (set in choose_action)."""
+        if self._B_sample is not None:
+            return self._B_sample
+        return self._B()
+
+    def _draw_B_sample(self):
+        if self.nov_w <= 0:            # frozen/eval mode: deterministic
+            self._B_sample = None
+            return
+        g = self.rng.gamma(self.B_counts)
+        self._B_sample = g / g.sum(axis=-1, keepdims=True)
+
     # -- episode-level belief state ------------------------------------------
 
     def reset_episode(self, cue: int | None):
@@ -180,7 +199,7 @@ class ActInfController:
     def _predict(self, b: np.ndarray, action: int):
         """Predictive posteriors per observation under `action`.
         Returns (posts: {obs: belief}, p_obs, info_gain)."""
-        B, A = self._B(), self._A()
+        B, A = self._B_planning(), self._A()
         b_pred = np.einsum("ds,dst->dt", b, B[action])
         joint = b_pred[:, :, None] * A[action]                  # (d, s, o)
         p_obs = joint.sum(axis=(0, 1))
@@ -200,7 +219,7 @@ class ActInfController:
         actions. Without it, an action with a flat likelihood prior predicts
         zero state-information gain and is never explored — the calibration
         table can't bootstrap."""
-        B = self._B()
+        B = self._B_planning()
         b_pred = np.einsum("ds,dst->dt", b, B[action])
         n_A = self.A_counts[action].sum(axis=-1)          # (d, s)
         n_B = self.B_counts[action].sum(axis=-1)          # (d, s)
@@ -259,7 +278,10 @@ class ActInfController:
         return best_v, best_a
 
     def choose_action(self, steps_left: int, can_rework: bool = False) -> int:
-        return self._plan(self.belief, steps_left, can_rework, self.horizon)[1]
+        self._draw_B_sample()          # one PSRL draw per decision
+        a = self._plan(self.belief, steps_left, can_rework, self.horizon)[1]
+        self._B_sample = None
+        return a
 
     # -- learning -------------------------------------------------------------
 
@@ -320,8 +342,22 @@ class ActInfController:
                  cost_sum=self.cost_sum, cost_n=self.cost_n)
 
     def load(self, path: str):
+        """Load counts saved by any earlier schema: arrays saved with fewer
+        actions/observations are overlaid onto freshly prior-initialized
+        tables, so newly added actions keep their structural priors and
+        exploration incentives while everything measured carries over."""
         z = np.load(path)
-        self.A_counts, self.Acue_counts = z["A"], z["Acue"]
-        self.B_counts, self.D_counts = z["B"], z["D"]
+
+        def overlay(cur: np.ndarray, old: np.ndarray) -> np.ndarray:
+            sl = tuple(slice(0, min(c, o))
+                       for c, o in zip(cur.shape, old.shape))
+            cur[sl] = old[sl]
+            return cur
+
+        self.A_counts = overlay(self.A_counts, z["A"])
+        self.Acue_counts = overlay(self.Acue_counts, z["Acue"])
+        self.B_counts = overlay(self.B_counts, z["B"])
+        self.D_counts = overlay(self.D_counts, z["D"])
         if "cost_sum" in z:
-            self.cost_sum, self.cost_n = z["cost_sum"], z["cost_n"]
+            self.cost_sum = overlay(self.cost_sum, z["cost_sum"])
+            self.cost_n = overlay(self.cost_n, z["cost_n"])

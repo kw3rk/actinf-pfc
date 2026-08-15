@@ -69,12 +69,13 @@ intermediate states).
 
 ## Known issues
 
-- **Cold-start under-exploration (Stage 2, observed in mock)**: a new action
-  whose true value is masked by an already-good policy can get ~20 trials of
-  bad luck, a pessimistic count cell, and premature abandonment — which would
-  then freeze into transferred models. Planned fix: an exploration floor
-  (minimum trial count per (action, difficulty) cell before its estimate is
-  eligible to be frozen), or optimistic initialization for newly added actions.
+- **Cold-start under-exploration — FIXED via posterior sampling (PSRL)**:
+  during learning the planner Dirichlet-samples its transition model per
+  decision instead of using count means, so sparse cells keep drawing
+  occasionally-optimistic models and get retried until their posteriors
+  concentrate. Mock validation: solve_prepped exploration 24 -> 141 trials,
+  estimate 0.40 -> 0.61 against a planted truth of 0.60, accuracy held.
+  Frozen/eval mode remains deterministic (means).
 
 ## Domain adaptation (added after the MMLU saturation finding)
 
