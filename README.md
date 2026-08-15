@@ -41,6 +41,17 @@ converges to ~0.83 accuracy at ~1050 tokens/episode; at a generous price,
 ~0.87–0.93 at ~1700. Same engine, same sensors — the cost-accuracy point is
 *declared*, not designed.
 
+**The far-transfer result is a price list, not a win.** On MMLU-Pro
+humanities (maximally foreign: knowledge/judgment, 10-choice MC), blanket
+skeptic pressure still buys +2.6 points (0.776 → 0.802) — but at ~90k tokens
+per marginal correct answer, versus ~900/point on GSM. A live-learning run
+measured this in-flight and correctly *declined to intervene* at the declared
+λ, converging to cheap calibrated trust at baseline accuracy. Math errors are
+variance (cheap to harvest by re-asking); knowledge errors are gaps (you
+cannot recompute your way into a fact). The controller's count tables tell
+you which regime you're in before you spend the budget — that is the
+product.
+
 ## What it learned (that you'd want to know anyway)
 
 The controller's model is a set of Dirichlet count tables you can read
