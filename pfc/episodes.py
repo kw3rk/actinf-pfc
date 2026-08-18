@@ -23,6 +23,12 @@ from .tasks import Task
 
 MAX_STEPS = 8
 
+# Which raw signal feeds the struggle channel (OB_ENT_SMOOTH/TURBULENT).
+# The cold probe crowns the winner per model: entropy for Qwen3.6-35B
+# (AUC 0.876), response length for Qwen3.8-27B (AUC 0.915). Threshold comes
+# from H_TURBULENT (patched per-model via run_llm --h-turbulent).
+STRUGGLE_SIGNAL = "entropy"          # "entropy" | "tokens"
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS episodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,11 +95,13 @@ def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
             same = _math.isclose(new_cand.answer, prev_ans,
                                  rel_tol=1e-4, abs_tol=1e-6)
             return OB_AGREE if same else OB_DISAGREE
-        if new_cand.entropy is not None:
+        val = (new_cand.entropy if STRUGGLE_SIGNAL == "entropy"
+               else float(new_cand.tokens))
+        if val is not None:
             if norm is not None:
-                high = norm.is_high(new_cand.entropy)
+                high = norm.is_high(val)
             else:
-                high = new_cand.entropy >= H_TURBULENT
+                high = val >= H_TURBULENT
             return OB_ENT_TURBULENT if high else OB_ENT_SMOOTH
         return OB_CONF_HIGH if new_cand.confidence == "high" else OB_CONF_LOW
 

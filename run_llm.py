@@ -35,6 +35,13 @@ def main():
     ap.add_argument("--adaptive-entropy", action="store_true",
                     help="bucket entropy vs a running local baseline instead "
                          "of the absolute calibrated threshold")
+    ap.add_argument("--h-turbulent", type=float, default=None,
+                    help="per-model struggle threshold (from probe.py); "
+                         "overrides the built-in default")
+    ap.add_argument("--struggle-signal", default="entropy",
+                    choices=["entropy", "tokens"],
+                    help="which raw signal feeds the struggle channel "
+                         "(probe.py crowns the winner per model)")
     ap.add_argument("--load-model", help="npz of pre-trained Dirichlet counts")
     ap.add_argument("--save-model", help="save actinf counts here at the end")
     args = ap.parse_args()
@@ -78,6 +85,11 @@ def main():
     else:
         get_task = lambda i: make_task(i, task_rng)
         n_eps = args.episodes
+    import pfc.episodes as _episodes
+    _episodes.STRUGGLE_SIGNAL = args.struggle_signal
+    if args.h_turbulent is not None:
+        import pfc.engine as _engine
+        _engine.H_TURBULENT = _episodes.H_TURBULENT = args.h_turbulent
     norm = None
     if args.adaptive_entropy:
         from pfc.engine import H_TURBULENT
