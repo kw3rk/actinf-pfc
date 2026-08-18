@@ -13,7 +13,7 @@ import sqlite3
 from dataclasses import dataclass
 
 from .engine import (SOLVE, SOLVE_THINK, VERIFY, REWORK, SUBMIT,
-                     REWORK_SKEPTIC, SOLVE_PREPPED,
+                     REWORK_SKEPTIC, SOLVE_PREPPED, SOLVE_CODE,
                      S_NONE, S_CORRECT, S_FLAWED,
                      OB_NONE, OB_CONF_LOW, OB_CONF_HIGH,
                      OB_VERDICT_OK, OB_VERDICT_ISSUE, OB_AGREE, OB_DISAGREE,
@@ -119,6 +119,10 @@ def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
             candidate = agent.solve_prepped(task)
             obs = fresh_obs(prev_ans, candidate)
             step_tokens = candidate.tokens
+        elif a == SOLVE_CODE:
+            candidate = agent.solve_code(task)
+            obs = fresh_obs(prev_ans, candidate)
+            step_tokens = candidate.tokens
         elif a == VERIFY:
             v = agent.verify(task, candidate.answer)
             critique = v.critique
@@ -149,7 +153,8 @@ def run_episode(policy, agent, task: Task, norm=None) -> EpisodeResult:
         if a == VERIFY:
             variant = last_verify_variant
         elif candidate is not None and a in (SOLVE, SOLVE_THINK, REWORK,
-                                             REWORK_SKEPTIC, SOLVE_PREPPED):
+                                             REWORK_SKEPTIC, SOLVE_PREPPED,
+                                             SOLVE_CODE):
             variant = candidate.variant
         trace.append({"action": a, "obs": obs, "tokens": step_tokens,
                       "status_before": s_before, "status_after": s_after,

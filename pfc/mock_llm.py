@@ -58,9 +58,12 @@ class MockConfig:
     verifier_variant_delta: tuple = (0.0, 0.08)
     # preparation pipeline: boost to solve success when prepped
     prep_boost: dict = field(default_factory=lambda: {D_EASY: 0.05, D_HARD: 0.15})
+    # write-and-execute: high success both strata, small exec-failure rate
+    p_code: dict = field(default_factory=lambda: {D_EASY: 0.95, D_HARD: 0.90})
+    p_code_exec_fail: float = 0.05
     tokens: dict = field(default_factory=lambda: {
         "solve": 300, "solve_think": 1500, "verify": 250, "rework": 400,
-        "rework_skeptic": 450, "solve_prepped": 550})
+        "rework_skeptic": 450, "solve_prepped": 550, "solve_code": 400})
 
 
 class MockAgent:
@@ -87,6 +90,14 @@ class MockAgent:
         c = self.cfg
         correct = self.rng.random() < c.p_solve[(task.difficulty, think)]
         return self._emit(task, correct, c.tokens["solve_think" if think else "solve"])
+
+    def solve_code(self, task: Task) -> AgentResult:
+        c = self.cfg
+        if self.rng.random() < c.p_code_exec_fail:
+            return AgentResult(answer=None, confidence="low",
+                               tokens=c.tokens["solve_code"])
+        correct = self.rng.random() < c.p_code[task.difficulty]
+        return self._emit(task, correct, c.tokens["solve_code"])
 
     def solve_prepped(self, task: Task) -> AgentResult:
         c = self.cfg

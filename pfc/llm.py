@@ -80,6 +80,12 @@ PREP_SYS = (
     "operation the problem describes, in order; (3) exactly what is being "
     "asked. Be terse and complete."
 )
+CODE_SYS = (
+    "You are a careful programmer. Write a complete Python 3 program that "
+    "computes the answer to the problem. The program must print ONLY the "
+    "final numeric answer. Use exact integer arithmetic where possible. "
+    "Respond with a single ```python code block and nothing else."
+)
 
 
 def _num(x) -> float | None:
@@ -167,6 +173,19 @@ class LlmAgent:
 
     def solve(self, task: Task, think: bool) -> AgentResult:
         return self._solve_like(SOLVER_SYS, task.text, think)
+
+    def solve_code(self, task: Task) -> AgentResult:
+        """Write-and-execute: the model writes a program; the sandbox runs it.
+        Execution doesn't hallucinate — a wrong answer means a wrong program,
+        not a bad sample, which is why this action's likelihoods should
+        calibrate sharp."""
+        from .sandbox import extract_code, run_python
+        text, tokens, h_mean = self._chat(CODE_SYS, task.text, think=False,
+                                          logprobs=True)
+        ans = run_python(extract_code(text))
+        return AgentResult(answer=ans,
+                           confidence="high" if ans is not None else "low",
+                           tokens=tokens, raw=text, entropy=h_mean)
 
     def solve_prepped(self, task: Task) -> AgentResult:
         """Preparation pipeline: extract the problem structure (cheap), gate on

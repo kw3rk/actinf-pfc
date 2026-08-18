@@ -33,11 +33,12 @@ N_DIFF = 2
 
 # actions
 (SOLVE, SOLVE_THINK, VERIFY, REWORK, SUBMIT, REWORK_SKEPTIC,
- SOLVE_PREPPED) = range(7)
-N_ACTIONS = 7
+ SOLVE_PREPPED, SOLVE_CODE) = range(8)
+N_ACTIONS = 8
 ACTION_NAMES = ["solve", "solve_think", "verify", "rework", "submit",
-                "rework_skeptic", "solve_prepped"]
-SOLVE_LIKE = (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC, SOLVE_PREPPED)
+                "rework_skeptic", "solve_prepped", "solve_code"]
+SOLVE_LIKE = (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC, SOLVE_PREPPED,
+              SOLVE_CODE)
 
 # feedback observations; agree/disagree = does a fresh candidate match the
 # previous one (self-consistency), emitted instead of confidence on re-solves;
@@ -59,7 +60,8 @@ CUE_SHORT, CUE_LONG = 0, 1
 # prior token costs per action; actual costs are learned online per
 # (action, difficulty) and dominate these priors after a few episodes
 TOKEN_COST = {SOLVE: 300, SOLVE_THINK: 1500, VERIFY: 250, REWORK: 400,
-              SUBMIT: 20, REWORK_SKEPTIC: 450, SOLVE_PREPPED: 550}
+              SUBMIT: 20, REWORK_SKEPTIC: 450, SOLVE_PREPPED: 550,
+              SOLVE_CODE: 400}
 
 
 class ActInfController:
@@ -227,9 +229,9 @@ class ActInfController:
 
     def _available(self, b: np.ndarray, can_rework: bool) -> list[int]:
         if b[:, S_NONE].sum() >= 0.5:                 # no candidate yet
-            return [SOLVE, SOLVE_THINK, SOLVE_PREPPED]
-        acts = [SOLVE, SOLVE_THINK, SOLVE_PREPPED, VERIFY, REWORK_SKEPTIC,
-                SUBMIT]
+            return [SOLVE, SOLVE_THINK, SOLVE_PREPPED, SOLVE_CODE]
+        acts = [SOLVE, SOLVE_THINK, SOLVE_PREPPED, SOLVE_CODE, VERIFY,
+                REWORK_SKEPTIC, SUBMIT]
         if can_rework:
             acts.insert(3, REWORK)
         return acts
@@ -312,7 +314,8 @@ class ActInfController:
         """Human-readable read-out of what the A-matrix has learned."""
         A = self._A()
         rows = []
-        for a in (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC, SOLVE_PREPPED):
+        for a in (SOLVE, SOLVE_THINK, REWORK, REWORK_SKEPTIC, SOLVE_PREPPED,
+                  SOLVE_CODE):
             for d, dn in [(D_EASY, "easy"), (D_HARD, "hard")]:
                 pc_hi = A[a, d, S_CORRECT, OB_CONF_HIGH]
                 pf_hi = A[a, d, S_FLAWED, OB_CONF_HIGH]

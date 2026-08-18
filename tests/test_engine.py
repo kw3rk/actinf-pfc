@@ -2,7 +2,8 @@ import numpy as np
 import pytest
 
 from pfc.engine import (ActInfController, SOLVE, SOLVE_THINK, VERIFY, REWORK,
-                        SUBMIT, REWORK_SKEPTIC, SOLVE_PREPPED, SOLVE_LIKE,
+                        SUBMIT, REWORK_SKEPTIC, SOLVE_PREPPED, SOLVE_CODE,
+                        SOLVE_LIKE,
                         S_NONE, S_CORRECT, S_FLAWED, D_EASY, D_HARD,
                         OB_CONF_HIGH, OB_CONF_LOW, OB_VERDICT_OK,
                         OB_VERDICT_ISSUE, OB_AGREE, OB_DISAGREE,
@@ -28,6 +29,8 @@ def trained_controller(**kw) -> ActInfController:
             p_prep = min(0.95, p_ok + 0.1)
             c.B_counts[SOLVE_PREPPED, d, s_prev, S_CORRECT] += N * p_prep
             c.B_counts[SOLVE_PREPPED, d, s_prev, S_FLAWED] += N * (1 - p_prep)
+            c.B_counts[SOLVE_CODE, d, s_prev, S_CORRECT] += N * 0.9
+            c.B_counts[SOLVE_CODE, d, s_prev, S_FLAWED] += N * 0.1
         for a in SOLVE_LIKE:
             # ratios preserve the pre-agreement-channel posteriors:
             # P(hi|corr)/P(hi|flawed)=4/3, P(lo|corr)/P(lo|flawed)=1/2
@@ -77,7 +80,8 @@ def test_verdict_issue_shifts_belief_to_flawed():
 def test_first_action_is_a_solve():
     c = trained_controller()
     c.reset_episode(cue=CUE_SHORT)
-    assert c.choose_action(steps_left=8) in (SOLVE, SOLVE_THINK)
+    assert c.choose_action(steps_left=8) in (SOLVE, SOLVE_THINK,
+                                             SOLVE_PREPPED, SOLVE_CODE)
 
 
 def test_easy_high_conf_submits_hard_low_conf_does_not():
@@ -98,7 +102,8 @@ def test_info_gain_drives_verification_when_uncertain():
     p_correct = c.belief[:, S_CORRECT].sum()
     assert 0.2 < p_correct < 0.7          # genuinely uncertain
     a = c.choose_action(steps_left=6)
-    assert a in (VERIFY, SOLVE_THINK, REWORK, REWORK_SKEPTIC)
+    assert a in (VERIFY, SOLVE_THINK, REWORK, REWORK_SKEPTIC, SOLVE_CODE,
+                 SOLVE_PREPPED)
 
 
 def test_forced_submit_at_budget_end():
