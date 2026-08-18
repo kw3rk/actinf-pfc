@@ -127,7 +127,10 @@ class LlmAgent:
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}],
             "temperature": 0.7,
-            "max_tokens": self.max_tokens,
+            # thinking chains need headroom: a truncated chain drops the
+            # answer JSON and gets graded flawed, poisoning solve_think's
+            # transition counts (observed on Qwen3.8-27B at 4096)
+            "max_tokens": self.max_tokens * 3 if think else self.max_tokens,
             "chat_template_kwargs": {"enable_thinking": think},
         }
         if logprobs:
